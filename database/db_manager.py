@@ -52,9 +52,24 @@ def salvar_boletim(ano, numero, natureza, local_da_ocorrencia):
         str: Mensagem de sucesso ou erro.
     """
     try:
+        # Validações e conversões
+        ano = int(ano) if isinstance(ano, (int, str)) else None
+        numero = int(numero) if isinstance(numero, (int, str)) else None
+
+        if ano is None or numero is None:
+            return f"Erro: Ano ou número inválido (ano={ano}, numero={numero})."
+
+        if not isinstance(natureza, str) or not natureza.strip():
+            return "Erro: Natureza inválida ou não informada."
+
+        if not isinstance(local_da_ocorrencia, str) or not local_da_ocorrencia.strip():
+            return "Erro: Local da ocorrência inválido ou não informado."
+
+        # Conexão com o banco de dados
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
+        # Inserir no banco de dados
         cursor.execute("""
             INSERT INTO boletins (ano, numero, natureza, local_da_ocorrencia)
             VALUES (?, ?, ?, ?)
@@ -64,6 +79,8 @@ def salvar_boletim(ano, numero, natureza, local_da_ocorrencia):
         conn.close()
         return f"Boletim {numero}/{ano} salvo com sucesso."
 
+    except ValueError:
+        return f"Erro: Ano ou número inválido (ano={ano}, numero={numero})."
     except sqlite3.IntegrityError:
         return f"Erro: O boletim {numero}/{ano} já existe no banco de dados."
     except Exception as e:
@@ -150,6 +167,7 @@ def buscar_boletim(ano, numero):
 
     except Exception as e:
         return f"Erro ao buscar boletim: {str(e)}"
+
 
 def carregar_boletins():
     """
