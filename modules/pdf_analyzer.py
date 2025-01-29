@@ -1,45 +1,54 @@
-import sys
-import os
+import pdfplumber
 import re
-from PyPDF2 import PdfReader
+import requests
+from database.db_manager import salvar_boletim
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
-def analisar_pdf(caminho_pdf):
+def obter_coordenadas(endereco_formatado):
     try:
-        reader = PdfReader(caminho_pdf)
-        texto_pagina1 = reader.pages[0].extract_text()
+        params = {"q": endereco_formatado, "format": "json"}
+        resposta = requests.get(NOMINATIM_URL, params=params, timeout=10)
+        dados = resposta.json()
 
-        # Extrair ano e número
-        match_boletim = re.search(r"B\.O\. N: (\d{4})/(\d+)", texto_pagina1)
-        if match_boletim:
-            ano = int(match_boletim.group(1))
-            numero = int(match_boletim.group(2))
+        if dados and isinstance(dados, list) and len(dados) > 0:
+            latitude = dados[0]["lat"]
+            longitude = dados[0]["lon"]
+            return latitude, longitude
         else:
-            ano, numero = None, None
-
-        # Extrair natureza
-        match_natureza = re.search(r"NATUREZA DA CHAMADA:\s*(.*)", texto_pagina1)
-        natureza = match_natureza.group(1).strip() if match_natureza else "Não informada"
-
-        # Extrair endereço
-        endereco_match = re.search(r"ENDEREÇO:\s*(.*)", texto_pagina1)
-        numero_match = re.search(r"NÚMERO:\s*(.*)", texto_pagina1)
-        complemento_match = re.search(r"COMPLEMENTO:\s*(.*)", texto_pagina1)
-        bairro_match = re.search(r"BAIRRO:\s*(.*)", texto_pagina1)
-        municipio_match = re.search(r"MUNICÍPIO/UF:\s*(.*)", texto_pagina1)
-
-        # Garantir que os valores sejam extraídos como strings e tratados
-        endereco = endereco_match.group(1).strip() if endereco_match else "Não informado"
-        numero = numero_match.group(1).strip() if numero_match else "Não informado"
-        complemento = complemento_match.group(1).strip() if complemento_match else ""
-        bairro = bairro_match.group(1).strip() if bairro_match else "Não informado"
-        municipio = municipio_match.group(1).strip() if municipio_match else "Não informado"
-
-        # Construir o local da ocorrência
-        local_da_ocorrencia = ", ".join(filter(None, [endereco, numero, complemento, bairro, municipio]))
-
-        return ano, numero, natureza, local_da_ocorrencia
+            print(f"Endereço não encontrado: {endereco_formatado}")
+            return None, None
     except Exception as e:
-        print(f"Erro ao analisar o PDF {caminho_pdf}: {e}")
-        return None, None, None, None
+        print(f"Erro ao obter coordenadas: {e}")
+        return None, None
+
+def analisar_pdfs(caminho_pasta):
+    for arquivo in caminho_pasta.glob("*.pdf"):
+        try:
+            with pdfplumber.open(arquivo) as pdf:
+                texto = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+
+            endereco_match = re.search(r"ENDEREÇO:\s*(.*)", texto)
+            numero_match = re.search(r"NÚMERO:\s*(\d+)", texto)
+            bairro_match = re.search(r"BAIRRO:\s*(.*)", texto)
+            municipio_match = re.search(r"MUNICÍPIO/UF:\s*([\w\s]+)-?\s*([A-Z]{2})?", texto)
+            complemento_match = re.search(r"COMPLEMENTO:\s*(.*)", texto)
+
+            endereco = endereco_match.group(1).strip() if endereco_match else ""
+            numero = numero_match.group(1).strip() if numero_match else ""
+            bairro = bairro_match.group(1).strip() if bairro_match else ""
+            municipio = municipio_match.group(1).strip() if municipio_match else ""
+            uf = municipio_match.group(2).strip() if municipio_match and municipio_match.group(2) else "PR"
+            complemento = complemento_match.group(1).strip() if complemento_match and complemento_match.group(1) else ""
+
+            # Formatar o endereço corretamente
+            endereco_formatado = f"{endereco}, {numero}, {bairro}, {municipio} - {uf}"
+
+            latitude, longitude = obter_coordenadas(endereco_formatado)
+
+            salvar_boletim(endereco, numero, bairro, f"{municipio} - {uf}", complemento, latitude, longitude)
+            
+            print(f"Processado com sucesso: {arquivo.name}")
+
+        except Exception as e:
+            print(f"Erro ao processar {arquivo.name}: {e}")

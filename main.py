@@ -9,4 +9,5 @@ if __name__ == "__main__":
     # Inicializar banco de dados
     inicializar_banco()
     # Iniciar a interface gráfica
+
     iniciar_interface()
