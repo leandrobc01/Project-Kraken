@@ -1,38 +1,27 @@
 import sqlite3
 
-BANCO_DADOS = "boletins.db"
-
-def inicializar_banco():
-    conexao = sqlite3.connect(BANCO_DADOS)
+def criar_banco():
+    conexao = sqlite3.connect("boletins.db")
     cursor = conexao.cursor()
     
-    cursor.execute("""
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS boletins (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_boletim TEXT,
+            ano_boletim INTEGER,
+            natureza_chamada TEXT,
             endereco TEXT,
             numero TEXT,
-            bairro TEXT,
-            municipio TEXT,
             complemento TEXT,
-            latitude TEXT,
-            longitude TEXT
+            municipio_uf TEXT,
+            bairro TEXT,
+            UNIQUE(numero_boletim, ano_boletim)
         )
-    """)
+    ''')
     
     conexao.commit()
     conexao.close()
+    print("Banco de dados criado com sucesso!")
 
-def salvar_boletim(endereco, numero, bairro, municipio, complemento, latitude, longitude):
-    try:
-        conexao = sqlite3.connect(BANCO_DADOS)
-        cursor = conexao.cursor()
-        
-        cursor.execute("""
-            INSERT INTO boletins (endereco, numero, bairro, municipio, complemento, latitude, longitude)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (endereco, numero, bairro, municipio, complemento, latitude, longitude))
-        
-        conexao.commit()
-        conexao.close()
-    except Exception as e:
-        print(f"Erro ao salvar boletim: {e}")
+# Criar banco ao executar o script
+criar_banco()

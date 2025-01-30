@@ -1,39 +1,50 @@
+import sys
+import os
 import tkinter as tk
-from tkinter import ttk
-from pathlib import Path  # 🔹 Correção adicionada
-from modules.pdf_analyzer import analisar_pdfs
-from database.db_manager import inicializar_banco
+from tkinter import filedialog, messagebox
+import sqlite3
 
-def iniciar_interface():
-    inicializar_banco()
+# Adiciona o diretório raiz ao sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-    janela = tk.Tk()
-    janela.title("Analisador de BOUs")
+from modules.pdf_analyzer import extrair_dados_pdf, inserir_dados_no_banco
 
-    abas = ttk.Notebook(janela)
+def selecionar_arquivos():
+    arquivos = filedialog.askopenfilenames(filetypes=[("PDF Files", "*.pdf")])
+    for arquivo in arquivos:
+        dados = extrair_dados_pdf(arquivo)
+        inserir_dados_no_banco(dados)
+    atualizar_lista()
+    messagebox.showinfo("Sucesso", "Processamento concluído!")
 
-    aba_processamento = ttk.Frame(abas)
-    abas.add(aba_processamento, text="Processamento")
+def atualizar_lista():
+    conexao = sqlite3.connect("boletins.db")
+    cursor = conexao.cursor()
+    cursor.execute("SELECT numero_boletim, ano_boletim, natureza_chamada FROM boletins")
+    registros = cursor.fetchall()
+    conexao.close()
+    
+    lista_boletins.delete(0, tk.END)
+    for registro in registros:
+        lista_boletins.insert(tk.END, f"{registro[0]}/{registro[1]} - {registro[2]}")
 
-    aba_base_dados = ttk.Frame(abas)
-    abas.add(aba_base_dados, text="Base de Dados")
+def criar_interface():
+    global lista_boletins
+    root = tk.Tk()
+    root.title("Kraken - Análise Criminal")
+    root.geometry("600x400")
+    
+    btn_selecionar = tk.Button(root, text="Selecionar PDFs", command=selecionar_arquivos)
+    btn_selecionar.pack(pady=10)
+    
+    btn_atualizar = tk.Button(root, text="Atualizar Base de Dados", command=atualizar_lista)
+    btn_atualizar.pack(pady=5)
+    
+    lista_boletins = tk.Listbox(root, width=80, height=15)
+    lista_boletins.pack(pady=10)
+    
+    atualizar_lista()
+    root.mainloop()
 
-    abas.pack(expand=1, fill="both")
-
-    # Área de logs
-    log_text = tk.Text(aba_processamento, height=15, width=80)
-    log_text.pack()
-
-    def processar():
-        log_text.insert(tk.END, "Iniciando processamento...\n")
-        caminho_pasta = Path("C:/BOUS")  # 🔹 Agora o Path foi importado corretamente
-        analisar_pdfs(caminho_pasta)
-        log_text.insert(tk.END, "Processamento concluído.\n")
-
-    botao_processar = tk.Button(aba_processamento, text="Processar PDFs", command=processar)
-    botao_processar.pack()
-
-    botao_atualizar = tk.Button(aba_base_dados, text="Atualizar Base de Dados")
-    botao_atualizar.pack()
-
-    janela.mainloop()
+if __name__ == "__main__":
+    criar_interface()

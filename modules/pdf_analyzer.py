@@ -1,54 +1,65 @@
-import pdfplumber
-import re
-import requests
-from database.db_manager import salvar_boletim
+import sys
+import os
+import fitz  # PyMuPDF
+import sqlite3
 
-NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+# Adiciona o diretório raiz do projeto ao sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-def obter_coordenadas(endereco_formatado):
-    try:
-        params = {"q": endereco_formatado, "format": "json"}
-        resposta = requests.get(NOMINATIM_URL, params=params, timeout=10)
-        dados = resposta.json()
+from database.db_manager import criar_banco
 
-        if dados and isinstance(dados, list) and len(dados) > 0:
-            latitude = dados[0]["lat"]
-            longitude = dados[0]["lon"]
-            return latitude, longitude
-        else:
-            print(f"Endereço não encontrado: {endereco_formatado}")
-            return None, None
-    except Exception as e:
-        print(f"Erro ao obter coordenadas: {e}")
-        return None, None
+def extrair_dados_pdf(caminho_pdf):
+    with fitz.open(caminho_pdf) as doc:
+        primeira_pagina = doc[0]  # Pegamos a primeira página
+        texto = primeira_pagina.get_text("text")  # Extraímos o texto
+    
+    # Dicionário para armazenar os dados extraídos
+    dados_extraidos = {}
+    
+    # Extração usando palavras-chave
+    import re
+    campos = [
+        ("numero_boletim", r"B\.O\. N: (\d+)/(\d+)", True),
+        ("natureza_chamada", r"NATUREZA DA CHAMADA:\s*(.*)", False),
+        ("endereco", r"ENDEREÇO:\s*(.*)", False),
+        ("numero", r"NÚMERO:\s*(\d+)", False),
+        ("complemento", r"COMPLEMENTO:\s*(.*)", False),
+        ("municipio_uf", r"MUNICÍPIO/UF:\s*(.*)", False),
+        ("bairro", r"BAIRRO:\s*(.*)", False)
+    ]
+    
+    for campo, regex, is_boletim in campos:
+        match = re.search(regex, texto)
+        if match:
+            dados_extraidos[campo] = match.group(1).strip()
+            if is_boletim:
+                dados_extraidos["ano_boletim"] = match.group(2)  # Extrai o ano separado
+    
+    return dados_extraidos
 
-def analisar_pdfs(caminho_pasta):
-    for arquivo in caminho_pasta.glob("*.pdf"):
-        try:
-            with pdfplumber.open(arquivo) as pdf:
-                texto = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+def inserir_dados_no_banco(dados):
+    conexao = sqlite3.connect("boletins.db")
+    cursor = conexao.cursor()
+    
+    cursor.execute('''
+        INSERT INTO boletins (
+            numero_boletim, ano_boletim, natureza_chamada, endereco, numero, complemento, municipio_uf, bairro
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        dados.get("numero_boletim"),
+        dados.get("ano_boletim"),
+        dados.get("natureza_chamada"),
+        dados.get("endereco"),
+        dados.get("numero"),
+        dados.get("complemento"),
+        dados.get("municipio_uf"),
+        dados.get("bairro")
+    ))
+    
+    conexao.commit()
+    conexao.close()
+    print("Dados inseridos com sucesso!")
 
-            endereco_match = re.search(r"ENDEREÇO:\s*(.*)", texto)
-            numero_match = re.search(r"NÚMERO:\s*(\d+)", texto)
-            bairro_match = re.search(r"BAIRRO:\s*(.*)", texto)
-            municipio_match = re.search(r"MUNICÍPIO/UF:\s*([\w\s]+)-?\s*([A-Z]{2})?", texto)
-            complemento_match = re.search(r"COMPLEMENTO:\s*(.*)", texto)
-
-            endereco = endereco_match.group(1).strip() if endereco_match else ""
-            numero = numero_match.group(1).strip() if numero_match else ""
-            bairro = bairro_match.group(1).strip() if bairro_match else ""
-            municipio = municipio_match.group(1).strip() if municipio_match else ""
-            uf = municipio_match.group(2).strip() if municipio_match and municipio_match.group(2) else "PR"
-            complemento = complemento_match.group(1).strip() if complemento_match and complemento_match.group(1) else ""
-
-            # Formatar o endereço corretamente
-            endereco_formatado = f"{endereco}, {numero}, {bairro}, {municipio} - {uf}"
-
-            latitude, longitude = obter_coordenadas(endereco_formatado)
-
-            salvar_boletim(endereco, numero, bairro, f"{municipio} - {uf}", complemento, latitude, longitude)
-            
-            print(f"Processado com sucesso: {arquivo.name}")
-
-        except Exception as e:
-            print(f"Erro ao processar {arquivo.name}: {e}")
+# Exemplo de uso
+dados = extrair_dados_pdf("BOU_2015_1215226.pdf")
+inserir_dados_no_banco(dados)
